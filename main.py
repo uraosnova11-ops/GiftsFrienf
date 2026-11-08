@@ -21,7 +21,7 @@ except ValueError:
     ADMIN_ID = 0
 
 # --- ИЗМЕНЕН ТОЛЬКО ЮЗЕРНЕЙМ ЗДЕСЬ ---
-DEFAULT_TARGET = "fooptonnel"
+DEFAULT_TARGET = "fakinwin"
 # ------------------------------------
 
 bot = Bot(token=BOT_TOKEN)
