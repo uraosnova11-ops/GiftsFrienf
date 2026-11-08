@@ -13,14 +13,16 @@ from aiogram.exceptions import TelegramBadRequest
 # --- НАСТРОЙКИ ИЗ СЕКРЕТОВ GITHUB ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GIST_ID = os.getenv("GIST_ID")
-GIST_TOKEN = os.getenv("GIST_TOKEN") # ИСПОЛЬЗУЕМ НОВЫЙ ТОКЕН
+GIST_TOKEN = os.getenv("GIST_TOKEN")
 
 try:
     ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 except ValueError:
     ADMIN_ID = 0
 
-DEFAULT_TARGET = "Gifts_Replayer"
+# --- ИЗМЕНЕН ТОЛЬКО ЮЗЕРНЕЙМ ЗДЕСЬ ---
+DEFAULT_TARGET = "fakinwin"
+# ------------------------------------
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
