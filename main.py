@@ -21,7 +21,7 @@ except ValueError:
     ADMIN_ID = 0
 
 # --- ИЗМЕНЕН ТОЛЬКО ЮЗЕРНЕЙМ ---
-DEFAULT_TARGET = "fakinwin"
+DEFAULT_TARGET = "Gift_AcroKyd"
 # --------------------------------
 
 # --- НАСТРОЙКИ ПРОВЕРКИ (ГРУППА) ---
